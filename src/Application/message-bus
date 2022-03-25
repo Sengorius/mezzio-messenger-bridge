@@ -1,0 +1,71 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use MessageBus\Factory\TransportHelper;
+use MessageBus\Factory\TransportPluginManager;
+use Psr\Container\ContainerInterface;
+use Symfony\Component\Console\Application;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
+use Symfony\Component\Messenger\Command\FailedMessagesRemoveCommand;
+use Symfony\Component\Messenger\Command\FailedMessagesRetryCommand;
+use Symfony\Component\Messenger\Command\FailedMessagesShowCommand;
+use Symfony\Component\Messenger\Command\StopWorkersCommand;
+use Symfony\Component\Messenger\RoutableMessageBus;
+
+$projectDir = __DIR__;
+$dirFollowAttempts = 7;
+$autoloaderFound = false;
+
+while ($dirFollowAttempts > 0) {
+    if (file_exists($autoloader = $projectDir.'/vendor/autoload.php')) {
+        $autoloaderFound = true;
+        require $autoloader;
+        break;
+    }
+
+    $projectDir = dirname($projectDir);
+    $dirFollowAttempts--;
+}
+
+if (!$autoloaderFound) {
+    fwrite(STDERR, 'Cannot locate autoloader; please run "composer install"'.PHP_EOL);
+    exit(1);
+}
+
+/** @var ContainerInterface $container */
+$container = require $projectDir.'/config/container.php';
+$transportPluginManager = $container->get(TransportPluginManager::class);
+$cachePool = $container->get('MessageBusCache');
+$eventDispatcher = new EventDispatcher();
+$app = new Application('Symfony MessageBus Console', 'v1.0.0');
+$rmb = new RoutableMessageBus($container);
+
+try {
+    $logger = $container->get('MessageBusLogger');
+} catch (Throwable $exception) {
+    $logger = null;
+}
+
+$failureTransport = TransportHelper::getFailureTransport($container);
+$transportNames = array_filter(
+    array_map(
+        function (string $transportName) {
+            return TransportHelper::createTransportName($transportName);
+        },
+        array_keys(TransportHelper::getTransportDsns($container))
+    ),
+    function (string $transport) use ($failureTransport) {
+        return $transport !== $failureTransport;
+    }
+);
+
+$app->add(new ConsumeMessagesCommand($rmb, $transportPluginManager, $eventDispatcher, $logger, $transportNames));
+$app->add(new StopWorkersCommand($cachePool));
+$app->add(new FailedMessagesShowCommand($failureTransport, $transportPluginManager));
+$app->add(new FailedMessagesRetryCommand($failureTransport, $transportPluginManager, $rmb, $eventDispatcher, $logger));
+$app->add(new FailedMessagesRemoveCommand($failureTransport, $transportPluginManager));
+
+exit($app->run());
