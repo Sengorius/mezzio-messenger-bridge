@@ -115,4 +115,35 @@ class TransportHelper
             return [];
         }
     }
+
+    /**
+     * Gets the senders locators map from configuration or empty array
+     *
+     * @param ContainerInterface $container
+     *
+     * @return array
+     */
+    public static function getCustomMiddlewares(ContainerInterface $container): array
+    {
+        try {
+            $config = $container->get('config') ?? [];
+            $messageBusConfig = $config['messageBus'] ?? [];
+
+            $filteredServices = array_filter(
+                $messageBusConfig['customMiddlewares'] ?? [],
+                function ($service) use ($container) {
+                    return $container->has($service);
+                }
+            );
+
+            return array_map(
+                function ($service) use ($container) {
+                    return $container->get($service);
+                },
+                $filteredServices
+            );
+        } catch (Throwable $exception) {
+            return [];
+        }
+    }
 }

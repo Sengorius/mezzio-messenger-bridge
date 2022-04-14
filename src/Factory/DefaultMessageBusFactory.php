@@ -11,6 +11,8 @@ use Symfony\Component\Messenger\Handler\HandlersLocatorInterface;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Messenger\Middleware\AddBusNameStampMiddleware;
+use Symfony\Component\Messenger\Middleware\DispatchAfterCurrentBusMiddleware;
+use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
 use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 use Symfony\Component\Messenger\Middleware\RejectRedeliveredMessageMiddleware;
 use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
@@ -36,18 +38,27 @@ final class DefaultMessageBusFactory
     {
         $logger = $container->get('MessageBusLogger');
 
+        $middlewares = [
+            new AddBusNameStampMiddleware(self::BUSNAME),
+            new RejectRedeliveredMessageMiddleware(),
+            new DispatchAfterCurrentBusMiddleware(),
+            new FailedMessageProcessingMiddleware(),
+        ];
+
+        // add custom configured middlewares
+        $customMiddlewares = TransportHelper::getCustomMiddlewares($container);
+        $middlewares = array_merge($middlewares, $customMiddlewares);
+
+        // add sender and handlers at the end
         $sendMessageMiddleware = new SendMessageMiddleware($this->generateSendersLocator($container));
         $sendMessageMiddleware->setLogger($logger);
+        $middlewares[] = $sendMessageMiddleware;
 
         $handleMessageMiddleware = new HandleMessageMiddleware($this->generateHandlersLocator($container));
         $handleMessageMiddleware->setLogger($logger);
+        $middlewares[] = $handleMessageMiddleware;
 
-        return new MessageBus([
-            new AddBusNameStampMiddleware(self::BUSNAME),
-            new RejectRedeliveredMessageMiddleware(),
-            $sendMessageMiddleware,
-            $handleMessageMiddleware,
-        ]);
+        return new MessageBus($middlewares);
     }
 
     /**
