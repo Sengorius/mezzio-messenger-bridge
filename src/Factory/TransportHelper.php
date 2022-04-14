@@ -117,7 +117,7 @@ class TransportHelper
     }
 
     /**
-     * Gets the senders locators map from configuration or empty array
+     * Gets the custom middlewares from configuration or empty array
      *
      * @param ContainerInterface $container
      *
